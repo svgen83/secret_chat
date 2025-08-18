@@ -1,4 +1,4 @@
-import asyncio
+ import asyncio
 import json
 import logging
 import os
@@ -39,29 +39,33 @@ async def tcp_echo_client(token, host, port, message):
     logger.debug("Authentication token sent.")
 
     auth_response_data = await reader.readline()
-    if not auth_response_data:
+    auth_response_json = json.loads(auth_response_data)
+    if auth_response_json is None: 
         logger.warning("Invalid token")
+        writer.close()
+        await writer.wait_closed()
+        logger.info("Connection closed.")
+        logger.info("TCP client finished.")
     else:
         auth_response = auth_response_data.decode()
         logger.info(f"Authentication Response: {auth_response!r}")
+        sanitized_message = sanitize(message)
 
-    sanitized_message = sanitize(message)
+        chat_message = f"{sanitized_message}\n\n"
+        logger.info(f"Sending chat message: {repr(chat_message)}")
+        writer.write(chat_message.encode())
+        await writer.drain()
+        logger.debug("Chat message sent.")
 
-    chat_message = f"{sanitized_message}\n\n"
-    logger.info(f"Sending chat message: {repr(chat_message)}")
-    writer.write(chat_message.encode())
-    await writer.drain()
-    logger.debug("Chat message sent.")
+        logger.info("Reading server responses for a short period...")
+        data = await reader.read(1024)
+        logger.info(f'Received: {data.decode()!r}')
+        logger.info("Finished reading server responses.")
+        writer.close()
+        await writer.wait_closed()
 
-    logger.info("Reading server responses for a short period...")
-    data = await reader.read(1024)
-    logger.info(f'Received: {data.decode()!r}')
-    logger.info("Finished reading server responses.")
-    writer.close()
-    await writer.wait_closed()
-
-    logger.info("Connection closed.")
-    logger.info("TCP client finished.")
+        logger.info("Connection closed.")
+        logger.info("TCP client finished.")
 
 
 if __name__ == "__main__":
