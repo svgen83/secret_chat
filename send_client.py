@@ -7,16 +7,13 @@ import argparse
 from dotenv import load_dotenv
 
 BUFFER_SIZE = 1024
-TIMEOUT = 1
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler("chat_client.log", encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
+        logging.StreamHandler()])
 logger = logging.getLogger(__name__)
 
 
@@ -87,7 +84,6 @@ async def authorise(reader, writer, token):
     logger.info(f"Необработанный ответ аутентификации: {auth_response_raw!r}")
 
     if auth_response_raw.strip() == 'null':
-        assert json.loads('null') is None
         logger.warning(
             "Ошибка: Сервер вернул 'null'. Возможно, токен недействителен")
         return False
@@ -108,13 +104,9 @@ async def submit_message(reader, writer, message):
     logger.info("Сообщение отправлено")
 
     logger.info("Чтение ответа сервера")
-    try:
-        data = await asyncio.wait_for(reader.read(BUFFER_SIZE),
-                                      timeout=TIMEOUT)
-        response = data.decode()
-        logger.info(f'Получен ответ от сервера: {response!r}')
-    except asyncio.TimeoutError:
-        logger.info("Таймаут ожидания ответа от сервера.")
+    data = await reader.read(BUFFER_SIZE)
+    response = data.decode()
+    logger.info(f'Получен ответ от сервера: {response!r}')
 
 
 async def tcp_client(host, port, token, token_path, nickname, message):
