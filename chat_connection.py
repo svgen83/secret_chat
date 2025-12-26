@@ -2,6 +2,9 @@ import aiofiles
 import asyncio
 import json
 import gui
+import time
+from async_timeout import timeout
+
 from datetime import datetime
 from config import config
 
@@ -35,6 +38,8 @@ async def create_connection(host, port, token, status_updates_queue, watchdog_qu
 
 
 async def read_messages(host, port, messages_queue, status_updates_queue, watchdog_queue):
+    timeout_seconds = 1
+    
     while True:
         status_updates_queue.put_nowait(gui.ReadConnectionStateChanged.INITIATED)
         try:
@@ -44,7 +49,8 @@ async def read_messages(host, port, messages_queue, status_updates_queue, watchd
             status_updates_queue.put_nowait(gui.SendingConnectionStateChanged.ESTABLISHED)
             watchdog_queue.put_nowait("Read connection: established")
             while True:
-                data = await reader.read(1024)
+                async with timeout(timeout_seconds) as cm:
+                    data = await reader.read(1024)
                 if not data:
                     break  
                 message = data.decode('utf-8').strip()
@@ -53,6 +59,9 @@ async def read_messages(host, port, messages_queue, status_updates_queue, watchd
                     formatted_message = f"[{timestamp}] {message}"
                     messages_queue.put_nowait(formatted_message)
                     watchdog_queue.put_nowait("New message in chat")
+                if cm.expired:
+                    current_time = int(time.time())
+                    watchdog_queue.put_nowait(f"[{current_time}] {timeout_seconds}s timeout is elapsed")
         except:
             status_updates_queue.put_nowait("Чтение: соединение закрыто")
             watchdog_queue.put_nowait("Read connection: error") 
@@ -136,3 +145,65 @@ async def history_manager(messages_queue, log_path):
     while True:
         message = await messages_queue.get()
         await save_message_to_history(message, log_path)
+
+
+async def handle_connection(host, port, messages_queue, status_updates_queue, watchdog_queue):
+   
+    SILENCE_TIMEOUT = 5  # Разрывать соединение после 5 секунд молчания
+    
+    while True:  
+        try:
+            print(f"Подключаемся к {host}:{port}")
+            watchdog_queue.put_nowait("Connection: attempting to connect")
+            
+            # Подключаемся
+            reader, writer = await asyncio.open_connection(host, port)
+            watchdog_queue.put_nowait("Connection: established")
+            watchdog_queue.put_nowait("Prompt before auth")
+            
+           
+            last_message_time = time.time()
+            
+            try:
+                while True:
+                    try:
+                        
+                        data = await asyncio.wait_for(reader.read(1024), timeout=1.0)
+                        
+                        if data:
+                           
+                            last_message_time = time.time()
+                            
+                            message = data.decode('utf-8').strip()
+                            if message:
+                                timestamp = time.strftime("%H:%M")
+                                formatted_message = f"[{timestamp}] {message}"
+                                messages_queue.put_nowait(formatted_message)
+                                watchdog_queue.put_nowait("New message in chat")
+                        else:
+                            
+                            break
+                            
+                    except asyncio.TimeoutError:
+                        
+                        current_time = time.time()
+                        silence_duration = int(current_time - last_message_time)
+
+                        timestamp = int(current_time)
+                        print(f"[{timestamp}] {silence_duration}s timeout is elapsed")
+                        
+    
+                        if silence_duration > SILENCE_TIMEOUT:
+                            print(f"[{timestamp}] Server silent for {silence_duration}s, closing connection")
+                            watchdog_queue.put_nowait(f"Connection: no activity for {silence_duration}s")
+                            break
+                            
+            finally:
+                writer.close()
+                await writer.wait_closed()
+                
+        except Exception as e:
+            print(f"Ошибка: {e}")
+            watchdog_queue.put_nowait(f"Connection error: {e}")
+        
+        await asyncio.sleep(2)

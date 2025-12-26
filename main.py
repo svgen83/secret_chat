@@ -4,7 +4,7 @@ import time
 
 from gui import NicknameReceived, InvalidToken
 from chat_connection import read_messages, send_message,create_connection
-from chat_connection import history_manager, register
+from chat_connection import history_manager, register, handle_connection
 from config import config
 from tkinter import messagebox
 
@@ -41,7 +41,6 @@ async def handle_outgoing_messages(sending_queue,
                 print("Ошибка регистрации")
                 watchdog_queue.put_nowait("Registration complete")
        
-        # Если соединение не установлено - создаем его
         if not writer:
             reader, writer = await create_connection(
                 config.host, 
@@ -60,12 +59,17 @@ async def handle_outgoing_messages(sending_queue,
 
 async def watch_for_connection(watchdog_queue):
     print("Watchdog запущен")
+    
     while True:
         event = await watchdog_queue.get()
-        
         timestamp = int(time.time())
-
-        print(f"[{timestamp}] Connection is alive. {event}")
+        
+        if "no activity for" in event:
+            print(f"[{timestamp}] {event}")
+        elif event.startswith('[') and ']' in event:
+            print(event)
+        else:
+            print(f"[{timestamp}] Connection is alive. {event}")
 
 
 async def main():
@@ -88,7 +92,7 @@ async def main():
     try:
         await asyncio.gather(
             gui.draw(messages_queue, sending_queue, status_updates_queue),
-            read_messages(config.host, config.read_port, messages_queue, status_updates_queue, watchdog_queue),
+            handle_connection(config.host, config.read_port, messages_queue, status_updates_queue, watchdog_queue),
             handle_outgoing_messages(sending_queue, status_updates_queue, messages_queue, watchdog_queue),
             history_manager(messages_queue, 'chat_history.txt'),
             watch_for_connection(watchdog_queue)
