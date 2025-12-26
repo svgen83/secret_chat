@@ -1,11 +1,21 @@
 import tkinter as tk
 import asyncio
 from tkinter.scrolledtext import ScrolledText
+from tkinter.messagebox import showerror
 from enum import Enum
 
 
 class TkAppClosed(Exception):
     pass
+
+
+class InvalidToken(Exception):
+    def show_error_dialog(self):
+        """Показать диалоговое окно с ошибкой"""
+        error_root = tk.Tk()
+        error_root.withdraw()
+        showerror("Ошибка токена", str(self))
+        error_root.destroy()
 
 
 class ReadConnectionStateChanged(Enum):
@@ -56,8 +66,8 @@ async def update_conversation_history(panel, messages_queue):
             panel.insert('end', '\n')
         panel.insert('end', msg)
         # TODO сделать промотку умной, чтобы не мешала просматривать историю сообщений
-        # ScrolledText.frame
-        # ScrolledText.vbar
+        ScrolledText.frame
+        ScrolledText.vbar
         panel.yview(tk.END)
         panel['state'] = 'disabled'
 
