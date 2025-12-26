@@ -1,40 +1,48 @@
 import aiofiles
 import asyncio
 import json
+import gui
 from datetime import datetime
 from config import config
-from gui import InvalidToken
 
 
-async def create_connection(host, port, token, status_updates_queue):
-    status_updates_queue.put_nowait("Отправка: устанавливаем соединение")
+async def create_connection(host, port, token, status_updates_queue, watchdog_queue):
+    status_updates_queue.put_nowait(gui.SendingConnectionStateChanged.INITIATED)
+    watchdog_queue.put_nowait("Send connection: establishing")
     reader, writer = await asyncio.open_connection(host, port)
-    status_updates_queue.put_nowait("Отправка: соединение установлено")
+    status_updates_queue.put_nowait(gui.SendingConnectionStateChanged.ESTABLISHED)
+    watchdog_queue.put_nowait("Send connection: establishing")
 
+    watchdog_queue.put_nowait("Prompt before auth")
     welcome_message = await reader.readline()
     
     # Авторизуемся
+    watchdog_queue.put_nowait("Authorization request")
     auth_message = f"{token}\n"
     writer.write(auth_message.encode())
     await writer.drain()
     
     auth_response = await reader.readline()
     if auth_response.decode().strip() == "null":
-        status_updates_queue.put_nowait("Отправка: ошибка авторизации")
+        status_updates_queue.put_nowait(gui.SendingConnectionStateChanged.CLOSED)
         writer.close()
         await writer.wait_closed()
-        raise InvalidToken("Неверный токен авторизации")
+        raise gui.InvalidToken("Неверный токен авторизации")
     
-    status_updates_queue.put_nowait("Отправка: авторизация успешна")
+    status_updates_queue.put_nowait(gui.SendingConnectionStateChanged.CLOSED)
+    watchdog_queue.put_nowait("Authorization done")
     return reader, writer
 
 
-async def read_messages(host, port, messages_queue, status_updates_queue):
+async def read_messages(host, port, messages_queue, status_updates_queue, watchdog_queue):
     while True:
+        status_updates_queue.put_nowait(gui.ReadConnectionStateChanged.INITIATED)
         try:
-            status_updates_queue.put_nowait("Чтение: устанавливаем соединение")
+            watchdog_queue.put_nowait("Read connection: establishing")
+            status_updates_queue.put_nowait(gui.SendingConnectionStateChanged.INITIATED)
             reader, writer = await asyncio.open_connection(host, port)
-            status_updates_queue.put_nowait("Чтение: соединение установлено")
+            status_updates_queue.put_nowait(gui.SendingConnectionStateChanged.ESTABLISHED)
+            watchdog_queue.put_nowait("Read connection: established")
             while True:
                 data = await reader.read(1024)
                 if not data:
@@ -44,8 +52,10 @@ async def read_messages(host, port, messages_queue, status_updates_queue):
                     timestamp = datetime.now().strftime("%H:%M")
                     formatted_message = f"[{timestamp}] {message}"
                     messages_queue.put_nowait(formatted_message)
+                    watchdog_queue.put_nowait("New message in chat")
         except:
             status_updates_queue.put_nowait("Чтение: соединение закрыто")
+            watchdog_queue.put_nowait("Read connection: error") 
             await asyncio.sleep(1)
             continue   
         finally:
@@ -56,7 +66,7 @@ async def read_messages(host, port, messages_queue, status_updates_queue):
                 pass
 
 
-async def register(reader, writer, nickname, token_path):
+async def register(reader, writer, nickname, token_path, watchdog_queue):
 
     hello_message = await reader.readline()
     writer.write(b'\n')
@@ -92,9 +102,10 @@ async def register(reader, writer, nickname, token_path):
         await writer.wait_closed()
 
 
-async def send_message(reader, writer, message, status_updates_queue):
+async def send_message(reader, writer, message, status_updates_queue, watchdog_queue):
     clean_message = message.replace("\n", " ").replace("\r", " ")
     message_to_send = f"{clean_message}\n\n"
+    watchdog_queue.put_nowait(f"Message: {clean_message[:50]}")
     writer.write(message_to_send.encode())
     await writer.drain()
     await reader.read(1024)
@@ -117,7 +128,6 @@ async def save_message_to_history(message, log_path):
         async with aiofiles.open(log_path, 'a', encoding='utf-8') as chat_logs:
             await chat_logs.write(f"{message}\n")
     except Exception:
-        # Если не удалось сохранить - продолжаем работу
         pass
 
 
