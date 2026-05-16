@@ -66,8 +66,8 @@ async def update_conversation_history(panel, messages_queue):
             panel.insert('end', '\n')
         panel.insert('end', msg)
         # TODO сделать промотку умной, чтобы не мешала просматривать историю сообщений
-        ScrolledText.frame
-        ScrolledText.vbar
+        #ScrolledText.frame
+        #ScrolledText.vbar
         panel.yview(tk.END)
         panel['state'] = 'disabled'
 

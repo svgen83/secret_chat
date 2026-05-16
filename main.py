@@ -3,7 +3,7 @@ import gui
 import time
 
 from gui import NicknameReceived, InvalidToken
-from chat_connection import read_messages, send_message,create_connection
+from chat_connection import send_message,create_connection
 from chat_connection import history_manager, register, handle_connection
 from config import config
 from tkinter import messagebox

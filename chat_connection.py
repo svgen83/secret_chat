@@ -37,43 +37,6 @@ async def create_connection(host, port, token, status_updates_queue, watchdog_qu
     return reader, writer
 
 
-async def read_messages(host, port, messages_queue, status_updates_queue, watchdog_queue):
-    timeout_seconds = 1
-    
-    while True:
-        status_updates_queue.put_nowait(gui.ReadConnectionStateChanged.INITIATED)
-        try:
-            watchdog_queue.put_nowait("Read connection: establishing")
-            status_updates_queue.put_nowait(gui.SendingConnectionStateChanged.INITIATED)
-            reader, writer = await asyncio.open_connection(host, port)
-            status_updates_queue.put_nowait(gui.SendingConnectionStateChanged.ESTABLISHED)
-            watchdog_queue.put_nowait("Read connection: established")
-            while True:
-                async with timeout(timeout_seconds) as cm:
-                    data = await reader.read(1024)
-                if not data:
-                    break  
-                message = data.decode('utf-8').strip()
-                if message:
-                    timestamp = datetime.now().strftime("%H:%M")
-                    formatted_message = f"[{timestamp}] {message}"
-                    messages_queue.put_nowait(formatted_message)
-                    watchdog_queue.put_nowait("New message in chat")
-                if cm.expired:
-                    current_time = int(time.time())
-                    watchdog_queue.put_nowait(f"[{current_time}] {timeout_seconds}s timeout is elapsed")
-        except:
-            status_updates_queue.put_nowait("Чтение: соединение закрыто")
-            watchdog_queue.put_nowait("Read connection: error") 
-            await asyncio.sleep(1)
-            continue   
-        finally:
-            try:
-                writer.close()
-                await writer.wait_closed()
-            except:
-                pass
-
 
 async def register(reader, writer, nickname, token_path, watchdog_queue):
 
@@ -99,16 +62,16 @@ async def register(reader, writer, nickname, token_path, watchdog_queue):
             with open(token_path, 'w', encoding='utf-8') as file:
                 file.write(new_token)
             print(f"Новый токен сохранен в файл '{token_path}'.")
-            return new_token
+            return new_token,reader,writer
         else:
             return None
     except json.JSONDecodeError:
         logger.error(
             f"Ответ сервера не является корректным JSON: {confirmation_msg!r}")
         return None
-    finally:
-        writer.close()
-        await writer.wait_closed()
+    #finally:
+     #   writer.close()
+      #  await writer.wait_closed()
 
 
 async def send_message(reader, writer, message, status_updates_queue, watchdog_queue):
