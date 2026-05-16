@@ -40,7 +40,7 @@ def load_config():
     parser.add_argument(
         '--nickname',
         type=str,
-        default=os.getenv('NICKNAME', 'Аноним'),
+        default=os.getenv('NICKNAME', 'Anonim'),
         help='Никнейм пользователя'
     )
     

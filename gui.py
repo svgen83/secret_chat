@@ -88,7 +88,8 @@ async def update_status_panel(status_labels, status_updates_queue):
             write_label['text'] = f'Отправка: {msg}'
 
         if isinstance(msg, NicknameReceived):
-            nickname_label['text'] = f'Имя пользователя: {msg.nickname}'
+            nickname_label['text'] = f'Имя пользователя: {"пользователь"}'
+            #nickname_label['text'] = f'Имя пользователя: {msg.nickname}'
 
 
 def create_status_panel(root_frame):

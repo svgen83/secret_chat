@@ -27,11 +27,15 @@ async def handle_outgoing_messages(sending_queue,
             # Создаем соединение для регистрации
             reader, writer = await asyncio.open_connection(config.host, config.send_port)
             watchdog_queue.put_nowait("Prompt before auth")
-            new_token = await register(reader, writer, config.nickname, config.token_path)
-            print(new_token)
-            if new_token:
+            new_token, server_nickname = await register(
+                reader, writer, config.nickname,
+                config.token_path, watchdog_queue)
+
+            if new_token and server_nickname:
                 config.token = new_token
+                config.nickname = server_nickname 
                 status_updates_queue.put_nowait("новый токен")
+                status_updates_queue.put_nowait(NicknameReceived(config.nickname))
                 messages_queue.put_nowait(
                     f"Зарегистрирован новый пользователь: {config.nickname}")
                 watchdog_queue.put_nowait("Registration complete")
@@ -40,6 +44,8 @@ async def handle_outgoing_messages(sending_queue,
                 messages_queue.put_nowait("Ошибка регистрации. Попробуйте еще раз.")
                 print("Ошибка регистрации")
                 watchdog_queue.put_nowait("Registration complete")
+                writer.close()
+                await writer.wait_closed()
        
         if not writer:
             reader, writer = await create_connection(
@@ -77,9 +83,7 @@ async def main():
     sending_queue = asyncio.Queue()
     status_updates_queue = asyncio.Queue()
     watchdog_queue = asyncio.Queue()
-    
-    status_updates_queue.put_nowait(NicknameReceived(config.nickname))
-    
+       
     # Вывод информации о настройках
     print("=== Настройки чата ===")
     print(f"Хост: {config.host}")
@@ -100,7 +104,7 @@ async def main():
     except InvalidToken as e:
         print(f"Ошибка авторизации: {e}")
         e.show_error_dialog()
-        root.destroy()
+        #root.destroy()
         print(f"Ошибка: {e}")
     except gui.TkAppClosed:
         print("Приложение закрыто")
