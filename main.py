@@ -1,90 +1,91 @@
-import asyncio
-import gui
+import anyio
 import time
-
+import gui
 from gui import NicknameReceived, InvalidToken
-from chat_connection import send_message,create_connection
-from chat_connection import history_manager, register, handle_connection
+from chat_connection import register, handle_connection
 from config import config
-from tkinter import messagebox
 
 
-async def handle_outgoing_messages(sending_queue,
-                                   status_updates_queue,
-                                   messages_queue,
-                                   watchdog_queue):
-    reader = None
-    writer = None
+async def handle_outgoing_messages(send_recv, status_send, messages_send, watchdog_send, config):
+    send_stream = None
 
-    while True:
-        user_message = await sending_queue.get()
+    async def ensure_send_connection():
+        nonlocal send_stream
+        
+        if send_stream is not None:
+            return send_stream
 
         if not config.token:
-            status_updates_queue.put_nowait("Отправка: регистрация...")
-            print("Токен не найден, начинаем регистрацию...")
-            watchdog_queue.put_nowait("Registration started")
+            await status_send.send("Отправка: требуется регистрация")
+            return None
+
+        try:
+            await status_send.send(gui.SendingConnectionStateChanged.INITIATED)
+            send_stream = await anyio.connect_tcp(config.host, config.send_port)
+            await status_send.send(gui.SendingConnectionStateChanged.ESTABLISHED)
+
+            await send_stream.send(f"{config.token}".encode())
+            
+            resp_bytes = await send_stream.receive(1024)
+            resp_str = resp_bytes.decode('utf-8').strip()
+
+            if resp_str == 'null' or 'error' in resp_str.lower():
+                await send_stream.aclose()
+                send_stream = None
+                config.token = None  # Сбрасываем, чтобы следующий вызов запустил регистрацию
+                raise InvalidToken(f"Токен недействителен. Ответ сервера: {resp_str}")
                 
-            # Создаем соединение для регистрации
-            reader, writer = await asyncio.open_connection(config.host, config.send_port)
-            watchdog_queue.put_nowait("Prompt before auth")
-            new_token, server_nickname = await register(
-                reader, writer, config.nickname,
-                config.token_path, watchdog_queue)
+            await watchdog_send.send("Send connection authorized")
+            return send_stream
+        except Exception as e:
+            await watchdog_send.send(f"Send connection failed: {e}")
+            if send_stream:
+                try: await send_stream.aclose()
+                except: pass
+            send_stream = None
+            return None
 
-            if new_token and server_nickname:
-                config.token = new_token
-                config.nickname = server_nickname 
-                status_updates_queue.put_nowait("новый токен")
-                status_updates_queue.put_nowait(NicknameReceived(config.nickname))
-                messages_queue.put_nowait(
-                    f"Зарегистрирован новый пользователь: {config.nickname}")
-                watchdog_queue.put_nowait("Registration complete")
+    # Основной цикл обработки сообщений из GUI
+    async with send_recv:
+        async for user_msg in send_recv:
+            stream = await ensure_send_connection()
+            if stream is None:
+                continue  # Пропускаем, если нет токена/соединения
+
+            try:
+                clean_msg = user_msg.replace('\n', ' ').replace('\r', ' ')
+                # Формат: сообщение + пустая строка (\n\n)
+                await stream.send(f"{clean_msg}\n\n".encode())
+                await watchdog_send.send(f"Отправлено: {clean_msg[:40]}")
+            except (anyio.ClosedResourceError, anyio.BrokenResourceError, OSError) as e:
+                await watchdog_send.send(f"Потеря соединения при отправке: {e}")
+                if send_stream:
+                    try: await send_stream.aclose()
+                    except: pass
+                send_stream = None
+                await status_send.send("Отправка: соединение разорвано")
+
+
+async def watch_for_connection(watchdog_recv):
+    async with watchdog_recv:
+        async for event in watchdog_recv:
+            ts = int(time.time())
+            if "no activity for" in event:
+                print(f"[{ts}] {event}")
+            elif event.startswith('[') and ']' in event:
+                print(event)
             else:
-                status_updates_queue.put_nowait("Отправка: ошибка регистрации")
-                messages_queue.put_nowait("Ошибка регистрации. Попробуйте еще раз.")
-                print("Ошибка регистрации")
-                watchdog_queue.put_nowait("Registration complete")
-                writer.close()
-                await writer.wait_closed()
-       
-        if not writer:
-            reader, writer = await create_connection(
-                config.host, 
-                config.send_port, 
-                config.token, 
-                status_updates_queue,
-                watchdog_queue
-                )
-        
-        if writer:
-            await send_message(reader, writer,
-                               user_message,
-                               status_updates_queue,
-                               watchdog_queue)
-
-
-async def watch_for_connection(watchdog_queue):
-    print("Watchdog запущен")
-    
-    while True:
-        event = await watchdog_queue.get()
-        timestamp = int(time.time())
-        
-        if "no activity for" in event:
-            print(f"[{timestamp}] {event}")
-        elif event.startswith('[') and ']' in event:
-            print(event)
-        else:
-            print(f"[{timestamp}] Connection is alive. {event}")
+                print(f"[{ts}] Connection is alive. {event}")
 
 
 async def main():
-    messages_queue = asyncio.Queue()
-    sending_queue = asyncio.Queue()
-    status_updates_queue = asyncio.Queue()
-    watchdog_queue = asyncio.Queue()
-       
-    # Вывод информации о настройках
+    msg_send, msg_recv = anyio.create_memory_object_stream(max_buffer_size=100)
+    send_send, send_recv = anyio.create_memory_object_stream(max_buffer_size=100)
+    status_send, status_recv = anyio.create_memory_object_stream(max_buffer_size=100)
+    watch_send, watch_recv = anyio.create_memory_object_stream(max_buffer_size=100)
+
+    await status_send.send(NicknameReceived(config.nickname))
+    
     print("=== Настройки чата ===")
     print(f"Хост: {config.host}")
     print(f"Порт чтения: {config.read_port}")
@@ -92,26 +93,42 @@ async def main():
     print(f"Никнейм: {config.nickname}")
     print(f"Токен: {'найден' if config.token else 'не найден'}")
     print("======================")
-    
+
     try:
-        await asyncio.gather(
-            gui.draw(messages_queue, sending_queue, status_updates_queue),
-            handle_connection(config.host, config.read_port, messages_queue, status_updates_queue, watchdog_queue),
-            handle_outgoing_messages(sending_queue, status_updates_queue, messages_queue, watchdog_queue),
-            history_manager(messages_queue, 'chat_history.txt'),
-            watch_for_connection(watchdog_queue)
-            )
-    except InvalidToken as e:
-        print(f"Ошибка авторизации: {e}")
-        e.show_error_dialog()
-        #root.destroy()
-        print(f"Ошибка: {e}")
-    except gui.TkAppClosed:
-        print("Приложение закрыто")
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(handle_outgoing_messages, send_recv, status_send, msg_send, watch_send, config)
+            tg.start_soon(handle_connection, config.host, config.read_port, msg_send, status_send, watch_send)
+            tg.start_soon(watch_for_connection, watch_recv)
+            
+            import tkinter as tk
+            root = tk.Tk()
+            tg.start_soon(gui.draw, root, msg_recv, status_recv, send_send)
+            
+    except BaseExceptionGroup as eg:
+        # anyio оборачивает все исключения фоновых задач в BaseExceptionGroup.
+        # Фильтруем только те, что являются штатным завершением программы.
+        expected_exits = (KeyboardInterrupt, gui.TkAppClosed)
+        real_errors = [exc for exc in eg.exceptions if not isinstance(exc, expected_exits)]
+        
+        if not real_errors:
+            print("Программа завершена пользователем.")
+        else:
+            print("Обнаружены ошибки в фоновых задачах:")
+            for exc in real_errors:
+                import traceback
+                print(f"--- {type(exc).__name__}: {exc} ---")
+                traceback.print_exception(type(exc), exc, exc.__traceback__)
+                
+    except (KeyboardInterrupt, gui.TkAppClosed):
+        print("Программа завершена пользователем.")
+        
     except Exception as e:
-        print(f"Ошибка: {e}")
+        print(f"Критическая ошибка: {e}")
+        import traceback
+        traceback.print_exc()
+        
     finally:
-        print("Программа завершена")
+        print("Завершение работы программы.")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    anyio.run(main)
