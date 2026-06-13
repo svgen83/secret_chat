@@ -5,10 +5,13 @@ import anyio
 import logging
 from enum import Enum
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
 
 class TkAppClosed(Exception):
     pass
+
 
 class InvalidToken(Exception):
     def show_error_dialog(self):
@@ -17,53 +20,72 @@ class InvalidToken(Exception):
         showerror("Ошибка токена", str(self))
         error_root.destroy()
 
+
 class ReadConnectionStateChanged(Enum):
     INITIATED = 'устанавливаем соединение'
     ESTABLISHED = 'соединение установлено'
     CLOSED = 'соединение закрыто'
-    def __str__(self): return str(self.value)
+
+    def __str__(self):
+        return str(self.value)
+
 
 class SendingConnectionStateChanged(Enum):
     INITIATED = 'устанавливаем соединение'
     ESTABLISHED = 'соединение установлено'
     CLOSED = 'соединение закрыто'
-    def __str__(self): return str(self.value)
+
+    def __str__(self):
+        return str(self.value)
+
 
 class NicknameReceived:
     def __init__(self, nickname):
         self.nickname = nickname
 
+
 async def update_tk(root, interval=1/120):
     while True:
+        if not root.winfo_exists():
+            raise TkAppClosed()
         try:
             root.update()
         except tk.TclError:
             raise TkAppClosed()
         await anyio.sleep(interval)
 
+
 async def update_conversation_history(panel, msg_recv):
     async with msg_recv:
         async for msg in msg_recv:
-            panel.config(state='normal')
-            if panel.index('end-1c') != '1.0':
-                panel.insert('end', '\n')
-            panel.insert('end', msg)
-            panel.yview('end')
-            panel.config(state='disabled')
+            try:
+                panel.config(state='normal')
+                if panel.index('end-1c') != '1.0':
+                    panel.insert('end', '\n')
+                panel.insert('end', msg)
+                panel.yview('end')
+                panel.config(state='disabled')
+            except tk.TclError:
+                break
+
 
 async def update_status_panel(nick_label, read_label, write_label, status_recv):
     read_label['text'] = 'Чтение: нет соединения'
     write_label['text'] = 'Отправка: нет соединения'
     nick_label['text'] = 'Имя пользователя: неизвестно'
-    
+
     async with status_recv:
         async for msg in status_recv:
-            if isinstance(msg, ReadConnectionStateChanged):
-                read_label['text'] = f'Чтение: {msg.value}'
-            elif isinstance(msg, SendingConnectionStateChanged):
-                write_label['text'] = f'Отправка: {msg.value}'
-            elif isinstance(msg, NicknameReceived):
-                nick_label['text'] = f'Имя пользователя: {msg.nickname}'
+            try:
+                if isinstance(msg, ReadConnectionStateChanged):
+                    read_label['text'] = f'Чтение: {msg.value}'
+                elif isinstance(msg, SendingConnectionStateChanged):
+                    write_label['text'] = f'Отправка: {msg.value}'
+                elif isinstance(msg, NicknameReceived):
+                    nick_label['text'] = f'Имя пользователя: {msg.nickname}'
+            except tk.TclError:
+                break
+
 
 async def draw(root, msg_recv, status_recv, send_channel):
     root.title('Чат Майнкрафтера')
@@ -71,7 +93,7 @@ async def draw(root, msg_recv, status_recv, send_channel):
 
     status_frame = tk.Frame(root)
     status_frame.pack(side='bottom', fill='x')
-    
+
     nick_label = tk.Label(status_frame, fg='grey', font='arial 10', anchor='w')
     nick_label.pack(side='top', fill='x')
     read_label = tk.Label(status_frame, fg='grey', font='arial 10', anchor='w')
@@ -84,10 +106,10 @@ async def draw(root, msg_recv, status_recv, send_channel):
 
     input_frame = tk.Frame(root)
     input_frame.pack(side='bottom', fill='x')
-    
+
     input_field = tk.Entry(input_frame)
     input_field.pack(side='left', fill='x', expand=True)
-    
+
     send_button = tk.Button(input_frame, text='Отправить')
     send_button.pack(side='left')
 

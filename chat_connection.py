@@ -1,19 +1,21 @@
+import asyncio
 import anyio
 import json
 import time
 import logging
 import gui
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
 
 async def ping_pong(stream, watchdog_send, interval=30):
     while True:
         await anyio.sleep(interval)
         try:
-            async with anyio.fail_after(5.0):
-                await stream.send(b"ping\n")
+            await asyncio.wait_for(stream.send(b"ping\n"), timeout=5.0)
             await watchdog_send.send("Ping OK")
-        except anyio.TimeoutError:
+        except asyncio.TimeoutError:
             await watchdog_send.send("Ping timeout! Connection likely dead.")
             break
         except anyio.get_cancelled_exc_class():
@@ -23,12 +25,13 @@ async def ping_pong(stream, watchdog_send, interval=30):
             await watchdog_send.send(f"Ping error: {e}")
             break
 
+
 async def register(stream, nickname, token_path, watchdog_send):
     await stream.receive_until(b'\n', 1024)
     await stream.send(b'\n')
     await stream.receive_until(b'\n', 1024)
     await stream.send(f"{nickname}\n".encode())
-    
+
     resp_line = await stream.receive_until(b'\n', 1024)
     resp_str = resp_line.decode().strip()
 
@@ -44,6 +47,7 @@ async def register(stream, nickname, token_path, watchdog_send):
     except Exception as e:
         logger.error(f"Ошибка парсинга ответа регистрации: {e}")
         return None, None
+
 
 async def handle_connection(host, port, messages_send, status_send, watchdog_send):
     SILENCE_TIMEOUT = 5
@@ -65,9 +69,8 @@ async def handle_connection(host, port, messages_send, status_send, watchdog_sen
                     try:
                         while True:
                             try:
-                                async with anyio.fail_after(1.0):
-                                    data = await stream.receive(1024)
-                            except anyio.TimeoutError:
+                                data = await asyncio.wait_for(stream.receive(1024), timeout=1.0)
+                            except asyncio.TimeoutError:
                                 await watchdog_send.send(f"[{int(time.time())}] Read timeout")
                                 if time.time() - last_msg_time > SILENCE_TIMEOUT:
                                     await watchdog_send.send(f"Silence > {SILENCE_TIMEOUT}s")
@@ -88,8 +91,8 @@ async def handle_connection(host, port, messages_send, status_send, watchdog_sen
                     except anyio.get_cancelled_exc_class():
                         break
                     except (anyio.ClosedResourceError, anyio.BrokenResourceError) as e:
-                        logger.warning(f"Stream error: {e}")
-                        await watchdog_send.send(f"Stream error: {e}")
+                        logger.warning(f"Stream error: {type(e).__name__}: {e}")
+                        await watchdog_send.send(f"Stream error: {type(e).__name__}: {e}")
                         break
 
         except (ConnectionRefusedError, OSError, anyio.ClosedResourceError) as e:

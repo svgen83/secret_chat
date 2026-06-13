@@ -11,7 +11,7 @@ load_dotenv()
 
 SERVER_HOST = os.getenv('HOST', 'minechat.dvmn.org')
 SERVER_PORT = int(os.getenv('SEND_PORT', 5050))
-TOKEN = os.getenv('TOKEN_PATH', 'token_file.txt')
+TOKEN_FILE = os.getenv('TOKEN_PATH', 'token_file.txt')
 
 
 async def connect_to_server(host: str, port: int, timeout: float = 10.0):
@@ -25,7 +25,6 @@ async def send_registration_request(reader, writer, nickname: str, timeout: floa
     await asyncio.wait_for(reader.readline(), timeout=timeout)
     writer.write(b'\n')
     await writer.drain()
-    
     await asyncio.wait_for(reader.readline(), timeout=timeout)
     writer.write(f"{nickname}\n".encode('utf-8'))
     await writer.drain()
@@ -34,7 +33,6 @@ async def send_registration_request(reader, writer, nickname: str, timeout: floa
 async def receive_server_response(reader, timeout: float = 10.0):
     raw_response = await asyncio.wait_for(reader.readline(), timeout=timeout)
     response_data = json.loads(raw_response.decode('utf-8'))
-    
     token = response_data.get('account_hash')
     server_nick = response_data.get('nickname')
     return token, server_nick
@@ -51,19 +49,18 @@ async def register_on_server(nickname: str, result_q: queue.Queue):
         reader, writer = await connect_to_server(SERVER_HOST, SERVER_PORT)
         await send_registration_request(reader, writer, nickname)
         token, server_nick = await receive_server_response(reader)
-        
+
         if not token:
             result_q.put(('error', 'Сервер не вернул токен. Попробуйте другой ник.'))
             return
-        
+
         final_nick = server_nick if server_nick else nickname
-        save_credentials(TOKEN, token, final_nick)
-        
+        save_credentials(TOKEN_FILE, token, final_nick)
         result_q.put((
             'success', 
-            f"Регистрация успешна!\nВаш никнейм: {final_nick}\nДанные сохранены в {TOKEN}"
+            f"Регистрация успешна!\nВаш никнейм: {final_nick}\nДанные сохранены в {TOKEN_FILE}"
         ))
-        
+
     except asyncio.TimeoutError:
         result_q.put(('error', 'Таймаут соединения. Проверьте интернет.'))
     except json.JSONDecodeError:
@@ -86,7 +83,7 @@ def create_gui():
     root.resizable(False, False)
 
     tk.Label(root, text="Введите желаемый никнейм:", font=('Arial', 10)).pack(pady=(20, 5))
-    
+
     nickname_entry = tk.Entry(root, width=30, font=('Arial', 10))
     nickname_entry.pack(pady=5)
     nickname_entry.focus()
@@ -98,7 +95,7 @@ def create_gui():
         root, text="Зарегистрироваться", font=('Arial', 10), bg='#4CAF50', fg='white'
     )
     register_btn.pack(pady=10)
-    
+
     return root, nickname_entry, status_label, register_btn
 
 
@@ -112,7 +109,7 @@ def start_registration(nickname_entry, status_label, register_btn, root):
     register_btn.config(state=tk.DISABLED, bg='#ccc')
     status_label.config(text="Подключение к серверу...", fg='blue')
     root.update_idletasks()
-    
+
     result_queue = queue.Queue()
 
     def run_async_register():
@@ -125,7 +122,7 @@ def start_registration(nickname_entry, status_label, register_btn, root):
         try:
             status, message = result_queue.get_nowait()
             status_label.config(text=message, fg='green' if status == 'success' else 'red')
-            
+
             if status == 'success':
                 messagebox.showinfo("Успех", message)
                 root.destroy()
@@ -141,14 +138,13 @@ def start_registration(nickname_entry, status_label, register_btn, root):
 
 def main():
     root, nickname_entry, status_label, register_btn = create_gui()
-    
     register_btn.config(
         command=lambda: start_registration(nickname_entry, status_label, register_btn, root)
     )
     nickname_entry.bind(
         '<Return>', lambda e: start_registration(nickname_entry, status_label, register_btn, root)
     )
-    
+
     root.mainloop()
 
 
