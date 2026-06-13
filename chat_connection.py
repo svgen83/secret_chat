@@ -1,16 +1,17 @@
-import asyncio
 import anyio
 import json
 import time
 import gui
 
+
 async def ping_pong(stream, watchdog_send, interval=30):
     while True:
         await anyio.sleep(interval)
         try:
-            await asyncio.wait_for(stream.send(b"ping\n"), timeout=5.0)
+            async with anyio.fail_after(5.0):
+                await stream.send(b"ping\n")
             await watchdog_send.send("Ping OK")
-        except asyncio.TimeoutError:
+        except anyio.TimeoutError:
             await watchdog_send.send("Ping timeout! Connection likely dead.")
             break
         except anyio.get_cancelled_exc_class():
@@ -19,15 +20,16 @@ async def ping_pong(stream, watchdog_send, interval=30):
             await watchdog_send.send(f"Ping error: {e}")
             break
 
+
 async def register(stream, nickname, token_path, watchdog_send):
     await stream.receive_until(b'\n', 1024)
     await stream.send(b'\n')
     await stream.receive_until(b'\n', 1024)
     await stream.send(f"{nickname}\n".encode())
-
+    
     resp_line = await stream.receive_until(b'\n', 1024)
     resp_str = resp_line.decode().strip()
-    
+
     try:
         data = json.loads(resp_str)
         token = data.get("account_hash")
@@ -39,6 +41,7 @@ async def register(stream, nickname, token_path, watchdog_send):
         return None, None
     except Exception:
         return None, None
+
 
 async def handle_connection(host, port, messages_send, status_send, watchdog_send):
     SILENCE_TIMEOUT = 5
@@ -60,8 +63,10 @@ async def handle_connection(host, port, messages_send, status_send, watchdog_sen
                     try:
                         while True:
                             try:
-                                data = await asyncio.wait_for(stream.receive(1024), timeout=1.0)
-                            except asyncio.TimeoutError:
+                                # Используем anyio.fail_after вместо asyncio.wait_for
+                                async with anyio.fail_after(1.0):
+                                    data = await stream.receive(1024)
+                            except anyio.TimeoutError:
                                 await watchdog_send.send(f"[{int(time.time())}] Read timeout")
                                 if time.time() - last_msg_time > SILENCE_TIMEOUT:
                                     await watchdog_send.send(f"Silence > {SILENCE_TIMEOUT}s")

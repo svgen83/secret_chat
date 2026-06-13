@@ -4,8 +4,10 @@ from tkinter.messagebox import showerror
 import anyio
 from enum import Enum
 
+
 class TkAppClosed(Exception):
     pass
+
 
 class InvalidToken(Exception):
     def show_error_dialog(self):
@@ -14,19 +16,29 @@ class InvalidToken(Exception):
         showerror("Ошибка токена", str(self))
         error_root.destroy()
 
+
 class ReadConnectionStateChanged(Enum):
     INITIATED = 'устанавливаем соединение'
     ESTABLISHED = 'соединение установлено'
     CLOSED = 'соединение закрыто'
+
+    def __str__(self):
+        return str(self.value)
+
 
 class SendingConnectionStateChanged(Enum):
     INITIATED = 'устанавливаем соединение'
     ESTABLISHED = 'соединение установлено'
     CLOSED = 'соединение закрыто'
 
+    def __str__(self):
+        return str(self.value)
+
+
 class NicknameReceived:
     def __init__(self, nickname):
         self.nickname = nickname
+
 
 async def update_tk(root, interval=1/120):
     while True:
@@ -35,6 +47,7 @@ async def update_tk(root, interval=1/120):
         except tk.TclError:
             raise TkAppClosed()
         await anyio.sleep(interval)
+
 
 async def update_conversation_history(panel, msg_recv):
     async with msg_recv:
@@ -46,10 +59,12 @@ async def update_conversation_history(panel, msg_recv):
             panel.yview('end')
             panel.config(state='disabled')
 
+
 async def update_status_panel(nick_label, read_label, write_label, status_recv):
     read_label['text'] = 'Чтение: нет соединения'
     write_label['text'] = 'Отправка: нет соединения'
     nick_label['text'] = 'Имя пользователя: неизвестно'
+    
     async with status_recv:
         async for msg in status_recv:
             if isinstance(msg, ReadConnectionStateChanged):
@@ -59,12 +74,14 @@ async def update_status_panel(nick_label, read_label, write_label, status_recv):
             elif isinstance(msg, NicknameReceived):
                 nick_label['text'] = f'Имя пользователя: {msg.nickname}'
 
+
 async def draw(root, msg_recv, status_recv, send_channel):
     root.title('Чат Майнкрафтера')
     root.geometry('800x600')
 
     status_frame = tk.Frame(root)
     status_frame.pack(side='bottom', fill='x')
+    
     nick_label = tk.Label(status_frame, fg='grey', font='arial 10', anchor='w')
     nick_label.pack(side='top', fill='x')
     read_label = tk.Label(status_frame, fg='grey', font='arial 10', anchor='w')
@@ -77,8 +94,10 @@ async def draw(root, msg_recv, status_recv, send_channel):
 
     input_frame = tk.Frame(root)
     input_frame.pack(side='bottom', fill='x')
+    
     input_field = tk.Entry(input_frame)
     input_field.pack(side='left', fill='x', expand=True)
+    
     send_button = tk.Button(input_frame, text='Отправить')
     send_button.pack(side='left')
 
@@ -100,4 +119,3 @@ async def draw(root, msg_recv, status_recv, send_channel):
         tg.start_soon(update_tk, root)
         tg.start_soon(update_conversation_history, conversation_panel, msg_recv)
         tg.start_soon(update_status_panel, nick_label, read_label, write_label, status_recv)
-
