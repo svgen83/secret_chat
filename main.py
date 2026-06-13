@@ -105,8 +105,6 @@ async def main():
             tg.start_soon(gui.draw, root, msg_recv, status_recv, send_send)
             
     except BaseExceptionGroup as eg:
-        # anyio оборачивает все исключения фоновых задач в BaseExceptionGroup.
-        # Фильтруем только те, что являются штатным завершением программы.
         expected_exits = (KeyboardInterrupt, gui.TkAppClosed)
         real_errors = [exc for exc in eg.exceptions if not isinstance(exc, expected_exits)]
         

@@ -40,22 +40,24 @@ def load_config():
     parser.add_argument(
         '--nickname',
         type=str,
-        default=os.getenv('NICKNAME', 'Anonim'),
+        default=os.getenv('NICKNAME', 'Аноним'),
         help='Никнейм пользователя'
     )
-    
+
     args = parser.parse_args()
-    
-    # Если токен не передан, пробуем загрузить из файла
+
     if not args.token and os.path.exists(args.token_path):
         try:
             with open(args.token_path, 'r', encoding='utf-8') as f:
-                args.token = f.read().strip()
+                lines = f.read().strip().split('\n')
+                if len(lines) >= 1:
+                    args.token = lines[0].strip()
+                if len(lines) >= 2:
+                    args.nickname = lines[1].strip()
         except Exception as e:
-            print(f"Ошибка чтения токена из файла: {e}")
+            print(f"Ошибка чтения файла учётных данных: {e}")
     
     return args
-
 
 # переменная для хранения конфигурации
 config = load_config()
