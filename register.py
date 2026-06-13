@@ -1,35 +1,38 @@
 import tkinter as tk
 from tkinter import messagebox
-import anyio
+import asyncio
 import json
 import threading
 import queue
+import os
+from dotenv import load_dotenv
 
-SERVER_HOST = 'minechat.dvmn.org'
-SERVER_PORT = 5050
-CREDENTIALS_FILE = 'token_file.txt'
+load_dotenv()
+
+SERVER_HOST = os.getenv('HOST', 'minechat.dvmn.org')
+SERVER_PORT = int(os.getenv('SEND_PORT', 5050))
+TOKEN = os.getenv('TOKEN_PATH', 'token_file.txt')
 
 
 async def connect_to_server(host: str, port: int, timeout: float = 10.0):
-    reader, writer = await anyio.connect_tcp(host, port)
+    reader, writer = await asyncio.wait_for(
+        asyncio.open_connection(host, port), timeout=timeout
+    )
     return reader, writer
 
 
 async def send_registration_request(reader, writer, nickname: str, timeout: float = 10.0):
-    async with anyio.fail_after(timeout):
-        await reader.receive_until(b'\n', 1024)
+    await asyncio.wait_for(reader.readline(), timeout=timeout)
     writer.write(b'\n')
     await writer.drain()
     
-    async with anyio.fail_after(timeout):
-        await reader.receive_until(b'\n', 1024)
+    await asyncio.wait_for(reader.readline(), timeout=timeout)
     writer.write(f"{nickname}\n".encode('utf-8'))
     await writer.drain()
 
 
 async def receive_server_response(reader, timeout: float = 10.0):
-    async with anyio.fail_after(timeout):
-        raw_response = await reader.receive_until(b'\n', 1024)
+    raw_response = await asyncio.wait_for(reader.readline(), timeout=timeout)
     response_data = json.loads(raw_response.decode('utf-8'))
     
     token = response_data.get('account_hash')
@@ -54,11 +57,14 @@ async def register_on_server(nickname: str, result_q: queue.Queue):
             return
         
         final_nick = server_nick if server_nick else nickname
-        save_credentials(CREDENTIALS_FILE, token, final_nick)
+        save_credentials(TOKEN, token, final_nick)
         
-        result_q.put(('success', f"Регистрация успешна!\nВаш никнейм: {final_nick}\nДанные сохранены в {CREDENTIALS_FILE}"))
+        result_q.put((
+            'success', 
+            f"Регистрация успешна!\nВаш никнейм: {final_nick}\nДанные сохранены в {TOKEN}"
+        ))
         
-    except anyio.TimeoutError:
+    except asyncio.TimeoutError:
         result_q.put(('error', 'Таймаут соединения. Проверьте интернет.'))
     except json.JSONDecodeError:
         result_q.put(('error', 'Некорректный ответ сервера. Попробуйте позже.'))
@@ -67,7 +73,8 @@ async def register_on_server(nickname: str, result_q: queue.Queue):
     finally:
         if writer:
             try:
-                await writer.aclose()
+                writer.close()
+                await writer.wait_closed()
             except Exception:
                 pass
 
@@ -87,7 +94,9 @@ def create_gui():
     status_label = tk.Label(root, text="", font=('Arial', 9), fg='grey')
     status_label.pack(pady=5)
 
-    register_btn = tk.Button(root, text="Зарегистрироваться", font=('Arial', 10), bg='#4CAF50', fg='white')
+    register_btn = tk.Button(
+        root, text="Зарегистрироваться", font=('Arial', 10), bg='#4CAF50', fg='white'
+    )
     register_btn.pack(pady=10)
     
     return root, nickname_entry, status_label, register_btn
@@ -107,7 +116,7 @@ def start_registration(nickname_entry, status_label, register_btn, root):
     result_queue = queue.Queue()
 
     def run_async_register():
-        anyio.run(register_on_server, nickname, result_queue)
+        asyncio.run(register_on_server(nickname, result_queue))
 
     thread = threading.Thread(target=run_async_register, daemon=True)
     thread.start()
@@ -133,8 +142,12 @@ def start_registration(nickname_entry, status_label, register_btn, root):
 def main():
     root, nickname_entry, status_label, register_btn = create_gui()
     
-    register_btn.config(command=lambda: start_registration(nickname_entry, status_label, register_btn, root))
-    nickname_entry.bind('<Return>', lambda e: start_registration(nickname_entry, status_label, register_btn, root))
+    register_btn.config(
+        command=lambda: start_registration(nickname_entry, status_label, register_btn, root)
+    )
+    nickname_entry.bind(
+        '<Return>', lambda e: start_registration(nickname_entry, status_label, register_btn, root)
+    )
     
     root.mainloop()
 

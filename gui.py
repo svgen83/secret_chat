@@ -2,12 +2,13 @@ import tkinter as tk
 from tkinter.scrolledtext import ScrolledText
 from tkinter.messagebox import showerror
 import anyio
+import logging
 from enum import Enum
 
+logger = logging.getLogger(__name__)
 
 class TkAppClosed(Exception):
     pass
-
 
 class InvalidToken(Exception):
     def show_error_dialog(self):
@@ -16,29 +17,21 @@ class InvalidToken(Exception):
         showerror("Ошибка токена", str(self))
         error_root.destroy()
 
-
 class ReadConnectionStateChanged(Enum):
     INITIATED = 'устанавливаем соединение'
     ESTABLISHED = 'соединение установлено'
     CLOSED = 'соединение закрыто'
-
-    def __str__(self):
-        return str(self.value)
-
+    def __str__(self): return str(self.value)
 
 class SendingConnectionStateChanged(Enum):
     INITIATED = 'устанавливаем соединение'
     ESTABLISHED = 'соединение установлено'
     CLOSED = 'соединение закрыто'
-
-    def __str__(self):
-        return str(self.value)
-
+    def __str__(self): return str(self.value)
 
 class NicknameReceived:
     def __init__(self, nickname):
         self.nickname = nickname
-
 
 async def update_tk(root, interval=1/120):
     while True:
@@ -47,7 +40,6 @@ async def update_tk(root, interval=1/120):
         except tk.TclError:
             raise TkAppClosed()
         await anyio.sleep(interval)
-
 
 async def update_conversation_history(panel, msg_recv):
     async with msg_recv:
@@ -58,7 +50,6 @@ async def update_conversation_history(panel, msg_recv):
             panel.insert('end', msg)
             panel.yview('end')
             panel.config(state='disabled')
-
 
 async def update_status_panel(nick_label, read_label, write_label, status_recv):
     read_label['text'] = 'Чтение: нет соединения'
@@ -73,7 +64,6 @@ async def update_status_panel(nick_label, read_label, write_label, status_recv):
                 write_label['text'] = f'Отправка: {msg.value}'
             elif isinstance(msg, NicknameReceived):
                 nick_label['text'] = f'Имя пользователя: {msg.nickname}'
-
 
 async def draw(root, msg_recv, status_recv, send_channel):
     root.title('Чат Майнкрафтера')
@@ -108,9 +98,9 @@ async def draw(root, msg_recv, status_recv, send_channel):
                 send_channel.send_nowait(text)
                 input_field.delete(0, tk.END)
             except anyio.WouldBlock:
-                print("Буфер отправки переполнен, сообщение пропущено")
-            except Exception:
-                pass  
+                logger.warning("Буфер отправки переполнен, сообщение пропущено")
+            except Exception as e:
+                logger.error(f"Ошибка при отправке из GUI: {e}")
 
     send_button.config(command=on_send)
     input_field.bind('<Return>', lambda e: on_send())

@@ -1,8 +1,10 @@
 import anyio
 import json
 import time
+import logging
 import gui
 
+logger = logging.getLogger(__name__)
 
 async def ping_pong(stream, watchdog_send, interval=30):
     while True:
@@ -17,9 +19,9 @@ async def ping_pong(stream, watchdog_send, interval=30):
         except anyio.get_cancelled_exc_class():
             break
         except Exception as e:
+            logger.error(f"Ping error: {e}")
             await watchdog_send.send(f"Ping error: {e}")
             break
-
 
 async def register(stream, nickname, token_path, watchdog_send):
     await stream.receive_until(b'\n', 1024)
@@ -39,9 +41,9 @@ async def register(stream, nickname, token_path, watchdog_send):
                 f.write(token)
             return token, nick
         return None, None
-    except Exception:
+    except Exception as e:
+        logger.error(f"Ошибка парсинга ответа регистрации: {e}")
         return None, None
-
 
 async def handle_connection(host, port, messages_send, status_send, watchdog_send):
     SILENCE_TIMEOUT = 5
@@ -63,7 +65,6 @@ async def handle_connection(host, port, messages_send, status_send, watchdog_sen
                     try:
                         while True:
                             try:
-                                # Используем anyio.fail_after вместо asyncio.wait_for
                                 async with anyio.fail_after(1.0):
                                     data = await stream.receive(1024)
                             except anyio.TimeoutError:
@@ -87,15 +88,16 @@ async def handle_connection(host, port, messages_send, status_send, watchdog_sen
                     except anyio.get_cancelled_exc_class():
                         break
                     except (anyio.ClosedResourceError, anyio.BrokenResourceError) as e:
+                        logger.warning(f"Stream error: {e}")
                         await watchdog_send.send(f"Stream error: {e}")
                         break
 
         except (ConnectionRefusedError, OSError, anyio.ClosedResourceError) as e:
+            logger.warning(f"Сетевая ошибка: {e}")
             await watchdog_send.send(f"Сетевая ошибка: {e}")
             await status_send.send(gui.ReadConnectionStateChanged.CLOSED)
         except Exception as e:
-            import traceback
-            traceback.print_exc()
+            logger.exception("Неожиданная ошибка в handle_connection")
             await watchdog_send.send(f"Неожиданная ошибка: {e}")
             await status_send.send(gui.ReadConnectionStateChanged.CLOSED)
 

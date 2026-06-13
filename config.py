@@ -1,36 +1,24 @@
 import os
 import argparse
+import logging
 from dotenv import load_dotenv
 
+logger = logging.getLogger(__name__)
 
 def load_config():
     load_dotenv()
     
     parser = argparse.ArgumentParser(description='GUI клиент для чата')
-    parser.add_argument(
-        '--host', type=str, default=os.getenv('HOST', 'minechat.dvmn.org'),
-        help='Хост сервера чата'
-    )
-    parser.add_argument(
-        '--read_port', type=int, default=int(os.getenv('READ_PORT', 5000)),
-        help='Порт для чтения сообщений'
-    )
-    parser.add_argument(
-        '--send_port', type=int, default=int(os.getenv('SEND_PORT', 5050)),
-        help='Порт для отправки сообщений'
-    )
-    parser.add_argument(
-        '--token', type=str, default=os.getenv('TOKEN'),
-        help='Токен пользователя'
-    )
-    parser.add_argument(
-        '--token_path', type=str, default='token_file.txt',
-        help='Путь к файлу с токеном'
-    )
-    parser.add_argument(
-        '--nickname', type=str, default=os.getenv('NICKNAME', 'Аноним'),
-        help='Никнейм пользователя'
-    )
+    parser.add_argument('--host', type=str, default=os.getenv(
+        'HOST', 'minechat.dvmn.org'), help='Хост сервера чата')
+    parser.add_argument('--read_port', type=int, default=int(os.getenv(
+        'READ_PORT', 5000)), help='Порт для чтения')
+    parser.add_argument('--send_port', type=int, default=int(os.getenv(
+        'SEND_PORT', 5050)), help='Порт для отправки')
+    parser.add_argument('--token', type=str, default=os.getenv(
+        'TOKEN'), help='Токен пользователя')
+    parser.add_argument('--token_path', type=str, default='token_file.txt', help='Путь к файлу с токеном')
+    parser.add_argument('--nickname', type=str, default=os.getenv('NICKNAME', 'Аноним'), help='Никнейм')
     
     args = parser.parse_args()
     
@@ -43,10 +31,8 @@ def load_config():
                 if len(lines) >= 2:
                     args.nickname = lines[1].strip()
         except Exception as e:
-            print(f"Ошибка чтения файла учётных данных: {e}")
+            logger.error(f"Ошибка чтения файла учётных данных: {e}")
     
     return args
 
-
-# Переменная для хранения конфигурации
 config = load_config()
